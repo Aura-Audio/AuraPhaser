@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuraPhaser Ultimate - Massive APF Matrix</title>
+    <style>
+        :root {
+            --bg: #0f1115; --surface: #1a1d24; --primary: #00e5ff;
+            --danger: #ff1744; --info: #b388ff; --warn: #ffb300; --record: #ff3d00; --aura: #1de9b6;
+            --text: #e0e0e0; --border: #333; --led-off: #222; --led-on: #0cf50c;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; transition: all 0.3s ease;}
+        body.inverted { --primary: #ff0055; --info: #ff8800; --aura: #ffea00; } /* Instantly shifts UI color scheme on invert */
+
+        .header { text-align: center; margin-bottom: 10px; width: 100%; max-width: 800px; }
+        
+        .canvas-row { display: flex; flex-wrap: wrap; gap: 15px; width: 100%; max-width: 1400px; justify-content: center; margin-bottom: 15px; }
+        .canvas-container { flex: 1 1 300px; display: flex; flex-direction: column; width: 100%; max-width: 600px; }
+        .canvas-label { font-size: 0.85em; color: var(--info); margin-bottom: 5px; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+        #master-canvas, #fft-canvas { width: 100%; height: 120px; background: #000; border-radius: 8px; border: 1px solid var(--border); box-shadow: inset 0 0 10px rgba(0,0,0,0.8); }
+        
+        .controls { background: var(--surface); padding: 15px 20px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: center; max-width: 1400px; width: 100%; box-sizing: border-box; }
+        .control-group { display: flex; align-items: center; gap: 10px; }
+        .divider { border-left: 1px solid #444; padding-left: 15px; }
+        
+        button { background-color: var(--primary); color: #000; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { opacity: 0.8; }
+        button.active { background-color: var(--danger); color: white;}
+        button.record-active { background-color: var(--record); color: white; animation: pulse 1.5s infinite; }
+        
+        .mega-btn { padding: 12px 24px; font-size: 1.1em; letter-spacing: 1px; border: 2px solid var(--primary); background: transparent; color: var(--primary); }
+        .mega-btn:hover { background: var(--primary); color: #000; }
+        .mega-btn.inverted-active { background: var(--danger); border-color: var(--danger); color: white; box-shadow: 0 0 15px var(--danger); }
+
+        .ui-num { padding: 4px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
+        select.ui-num { cursor: pointer; }
+
+        .dash-header-row { width: 100%; max-width: 1600px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 0 10px; box-sizing: border-box; gap: 10px; }
+        .dash-header-controls { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; background: var(--surface); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border); }
+        #instances-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; width: 100%; max-width: 1600px; margin-bottom: 10px; }
+        .instance-card { background: var(--surface); border: 2px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; transition: border-color 0.3s; }
+        .instance-card.active-card { border-color: var(--primary); }
+        .instance-header { display: flex; justify-content: space-between; align-items: center; font-size: 1.1em; font-weight: bold; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+        .led-indicator { width: 12px; height: 12px; border-radius: 50%; background-color: var(--led-off); box-shadow: 0 0 5px #000; transition: background-color 0.1s; }
+        .led-indicator.on { background-color: var(--led-on); box-shadow: 0 0 10px var(--led-on); }
+        .instance-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9em; }
+        .readout { background: #000; color: var(--primary); font-family: monospace; padding: 4px 8px; border-radius: 4px; font-size: 1em; width: 85px; text-align: right; border: 1px solid #444; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>AuraPhaser <span style="font-size: 0.5em; color: var(--primary);">(Ultimate Worklet Edition)</span></h1>
+        <p>Massive Parallel All-Pass Filter Engine</p>
+    </div>
+
+    <!-- ANALYSIS DASHBOARD -->
+    <div class="canvas-row">
+        <div class="canvas-container">
+            <div class="canvas-label">Phaser Time Domain & Notch Sweep</div>
+            <canvas id="master-canvas"></canvas>
+        </div>
+        <div class="canvas-container">
+            <div class="canvas-label">FFT Spectral Distribution</div>
+            <canvas id="fft-canvas"></canvas>
+        </div>
+    </div>
+
+    <!-- ROW 1: CORE CONTROLS & INVERSION -->
+    <div class="controls" style="border-color: var(--primary);">
+        <button id="mic-btn">Start Microphone</button>
+        <div class="control-group divider">
+            <label style="font-weight:bold;">Mic Vol (%):</label>
+            <input type="number" id="mic-vol-pct" class="ui-num" min="0" max="1000" value="100" style="width: 60px;">
+        </div>
+        
+        <!-- THE INVERSION BUTTON -->
+        <div class="divider" style="padding-left: 20px;">
+            <button id="invert-btn" class="mega-btn" disabled>⭾ INVERT AURA (OPPOSITE)</button>
+        </div>
+
+        <div class="control-group divider" style="font-family: monospace; background: #000; padding: 5px 10px; border-radius: 4px; border: 1px solid #444; margin-left:auto;">
+            <span style="color:#aaa;">Raw: </span><span id="meter-raw" style="color:var(--danger); width:65px; display:inline-block; text-align:right;">-∞ dB</span>
+            <span style="color:#aaa; margin-left:10px;">Post: </span><span id="meter-post" style="color:var(--led-on); width:65px; display:inline-block; text-align:right;">-∞ dB</span>
+        </div>
+    </div>
+
+    <!-- ENGINES DASHBOARD HEADER -->
+    <div class="dash-header-row">
+        <h2 style="margin: 0; color: var(--info); font-size: 1.2em;">Phase-Shifter Array Dashboard</h2>
+        
+        <div class="dash-header-controls">
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <label style="color: var(--primary); font-weight: bold;">Engines:</label>
+                <input type="number" id="master-engines-count" class="ui-num" min="1" max="20" value="10" style="width: 50px;">
+                
+                <label style="color: var(--primary); font-weight: bold; margin-left: 10px;">Tracks/Engine:</label>
+                <input type="number" id="master-tracks-count" class="ui-num" min="1" max="1000" value="50" style="width: 60px;">
+                
+                <label style="color: var(--primary); font-weight: bold; margin-left: 10px;">Spread (Hz):</label>
+                <select id="master-spread-select" class="ui-num"><option value="1">1 Hz</option><option value="5" selected>5 Hz</option><option value="20">20 Hz</option></select>
+                <button id="apply-master-engines-btn" style="background-color: var(--primary); padding: 4px 10px; font-size: 0.85em; color: black;">Apply Config</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <label style="color: var(--danger); font-weight: bold;">LFO Matrix Stack:</label>
+                <select id="sweep-mode" class="ui-num" style="width: 145px;">
+                    <option value="down">Converge to Notches</option>
+                    <option value="up">Sweep to Air</option>
+                    <option value="split">Split Spectrum</option>
+                </select>
+                <button id="apply-sweep-btn" style="background-color: var(--danger); padding: 4px 10px; font-size: 0.85em; color: white;">Generate Matrix</button>
+            </div>
+            
+            <div class="divider"></div>
+            <button id="master-lfo-btn" style="background-color: var(--info); font-size: 1em; padding: 6px 15px;">▶ Start All LFOs</button>
+        </div>
+    </div>
+
+    <!-- ROW 3: ENGINES DASHBOARD (20 ENGINES) -->
+    <div id="instances-container"></div>
+
+    <!-- ROW 6: RECORDING -->
+    <div class="controls" style="border-color: var(--record); margin-top:15px;">
+        <button id="record-btn" style="background-color: var(--surface); border: 2px solid var(--record); color: white;">⏺ Start Recording Mix</button>
+        <div class="control-group divider"><label>Format: </label><select id="record-format" class="ui-num"><option value="wav">WAV (Uncompressed)</option><option value="flac">FLAC</option></select></div>
+        <div id="record-status" style="margin-left: 15px; color: var(--info); font-size: 0.9em; font-weight: bold;"></div>
+    </div>
+
+    <script>
+        const ENGINE_COUNT = 20; 
+        const LFO_TIMES = [0.1, 0.5, 1, 2, 3, 5, 8, 12, 15, 20];
+
+        // ==========================================
+        // 1. THE C++ STYLE WORKLET (ALL-PASS MATRIX)
+        // ==========================================
+        const workletCode = `
+        class PhaserWorkletProcessor extends AudioWorkletProcessor {
+            constructor() {
+                super();
+                this.globalSampleCounter = 0;
+                
+                // 1. 8192-Point Trigonometry Look-Up Table for APF Coefficients
+                // Calculates (tan(w) - 1)/(tan(w) + 1) avoiding per-sample math
+                this.nyquist = sampleRate / 2;
+                this.coeffTableSize = 8192;
+                this.coeffTable = new Float32Array(this.coeffTableSize);
+                
+                for(let i = 0; i < this.coeffTableSize; i++) {
+                    let freq = (i / this.coeffTableSize) * this.nyquist;
+                    // Cap frequency to prevent tan(pi/2) infinity explosion
+                    if (freq >= this.nyquist * 0.98) freq = this.nyquist * 0.98;
+                    let w = Math.PI * freq / sampleRate;
+                    let t = Math.tan(w);
+                    this.coeffTable[i] = (t - 1) / (t + 1);
+                }
+
+                // 2. State Memory Architecture (CPU Cache Optimized)
+                // 20 Engines * 1000 Tracks = 20,000 parallel APF chains
+                this.engines = Array(${ENGINE_COUNT}).fill().map((_, i) => ({
+                    active: false, lfoActive: false, lfoStart: 500, lfoEnd: 1500, lfoTime: 5, 
+                    currentFreq: 500, lfoSamples: 0, tracks: 50, trackSpread: 5.0,
+                    
+                    // The 4 memory states needed for a Chained 1st-Order All-Pass Filter (Phase Shifter)
+                    s_x: new Float32Array(1000),     // APF1 Input Delay
+                    s_y1: new Float32Array(1000),    // APF1 Output Delay
+                    s_y1_2: new Float32Array(1000),  // APF2 Input Delay
+                    s_y2: new Float32Array(1000),    // APF2 Output Delay
+                    
+                    coeffs: new Float32Array(1000)   // Pre-calculated current block coefficients
+                }));
+
+                this.config = { inverted: false };
+                this.statusBuffer = new Float32Array(${ENGINE_COUNT});
+                this.statusFrameCount = 0;
+
+                this.port.onmessage = (e) => {
+                    if (e.data.type === 'config') this.config = { ...this.config, ...e.data };
+                    if (e.data.type === 'updateEngine') {
+                        let idx = e.data.index;
+                        Object.assign(this.engines[idx], e.data.engineData);
+                    }
+                };
+            }
+
+            process(inputs, outputs) {
+                const input = inputs[0];
+                const output = outputs[0];
+                if (!input || !input.length) return true;
+                const channelIn = input[0];
+                const channelOut = output[0];
+                const numFrames = channelIn.length;
+
+                let totalActiveTracks = 0;
+
+                // --- BLOCK LEVEL PRE-CALCULATION ---
+                for (let e = 0; e < ${ENGINE_COUNT}; e++) {
+                    let eng = this.engines[e];
+                    if (!eng.active) continue;
+                    totalActiveTracks += eng.tracks;
+                    
+                    // Advance LFO
+                    if (eng.lfoActive) {
+                        const totalSamples = eng.lfoTime * sampleRate;
+                        eng.lfoSamples += numFrames;
+                        if (eng.lfoSamples >= totalSamples) eng.lfoSamples %= totalSamples; 
+                        
+                        // Sine wave LFO smoothing
+                        let progress = eng.lfoSamples / totalSamples;
+                        let lfoSine = (Math.sin(progress * Math.PI * 2 - Math.PI/2) + 1) / 2;
+                        eng.currentFreq = eng.lfoStart + ((eng.lfoEnd - eng.lfoStart) * lfoSine);
+                    }
+
+                    // Pre-fetch Track Coefficients from the LUT
+                    for(let t = 0; t < eng.tracks; t++) {
+                        let targetFreq = eng.currentFreq + (t * eng.trackSpread);
+                        
+                        // THE MATHEMATICAL OPPOSITE: Mirror spectrum to the opposite side
+                        if (this.config.inverted) {
+                            targetFreq = this.nyquist - targetFreq;
+                        }
+                        
+                        if (targetFreq < 20) targetFreq = 20;
+                        if (targetFreq >= this.nyquist) targetFreq = this.nyquist - 1;
+
+                        let idx = Math.floor((targetFreq / this.nyquist) * this.coeffTableSize);
+                        eng.coeffs[t] = this.coeffTable[idx];
+                    }
+                }
+
+                // Volume Normalization preventing overload
+                const normalizer = totalActiveTracks > 0 ? (1.0 / Math.sqrt(totalActiveTracks)) : 1.0;
+
+                // --- ZERO-BRANCH PER-SAMPLE DSP LOOP ---
+                for (let i = 0; i < numFrames; i++) {
+                    let val = channelIn[i];
+                    let mixedWet = 0;
+
+                    for (let e = 0; e < ${ENGINE_COUNT}; e++) {
+                        let eng = this.engines[e];
+                        if (!eng.active) continue;
+
+                        let tCount = eng.tracks;
+                        for(let t = 0; t < tCount; t++) {
+                            let a = eng.coeffs[t];
+
+                            // APF Node 1
+                            let y1 = (a * val) + eng.s_x[t] - (a * eng.s_y1[t]);
+                            eng.s_x[t] = val;
+                            eng.s_y1[t] = y1;
+
+                            // APF Node 2 (Cascade creates maximum phase stretch)
+                            let y2 = (a * y1) + eng.s_y1_2[t] - (a * eng.s_y2[t]);
+                            eng.s_y1_2[t] = y1;
+                            eng.s_y2[t] = y2;
+
+                            mixedWet += y2;
+                        }
+                    }
+
+                    // Wet/Dry Mixing Block
+                    let dry = val * 0.5;
+                    let wet = (mixedWet * normalizer) * 0.5;
+                    
+                    // THE MATHEMATICAL OPPOSITE: Invert Wet Phase 180 degrees
+                    if (this.config.inverted) wet *= -1;
+
+                    channelOut[i] = dry + wet;
+                }
+
+                // --- TELEMETRY ---
+                if (this.statusFrameCount++ > 5) {
+                    for(let e = 0; e < ${ENGINE_COUNT}; e++) this.statusBuffer[e] = this.engines[e].currentFreq;
+                    this.port.postMessage({ type: 'status', freqs: this.statusBuffer });
+                    this.statusFrameCount = 0;
+                }
+                return true;
+            }
+        }
+        registerProcessor('phaser-worklet', PhaserWorkletProcessor);
+        `;
+        const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(workletBlob);
+
+        // --- GLOBAL VARIABLES ---
+        let audioContext, microphone, stream;
+        let isRunning = false, animationId;
+        let isSystemInverted = false;
+        
+        let liveMathNode, outputGain; 
+        let rawAnalyser, postAnalyser, fftAnalyser;
+        let rawTimeData, postTimeData, fftData;
+        let currentEngineFreqs = new Float32Array(ENGINE_COUNT);
+
+        let isRecording = false, mediaRecorder = null, recordedChunks =[], recordStartTime = 0;
+        let scriptProcessor = null, wavAudioBuffer =[]; 
+
+        const micBtn = document.getElementById('mic-btn');
+        const invertBtn = document.getElementById('invert-btn');
+        const masterCanvas = document.getElementById('master-canvas');
+        const masterCtx = masterCanvas.getContext('2d', { alpha: false });
+        const fftCanvas = document.getElementById('fft-canvas');
+        const fftCtx = fftCanvas.getContext('2d', { alpha: false });
+
+        // --- INVERSION MECHANIC ---
+        invertBtn.addEventListener('click', () => {
+            if(!liveMathNode) return;
+            isSystemInverted = !isSystemInverted;
+            
+            // Push to CSS for instant dark-mode color scheme shift
+            document.body.classList.toggle('inverted', isSystemInverted);
+            invertBtn.classList.toggle('inverted-active', isSystemInverted);
+            invertBtn.innerText = isSystemInverted ? "⭾ REVERT AURA (NORMAL)" : "⭾ INVERT AURA (OPPOSITE)";
+
+            // Push the atomic command to the Worklet
+            liveMathNode.port.postMessage({ type: 'config', inverted: isSystemInverted });
+        });
+
+        // --- DASHBOARD UI GENERATOR ---
+        const instancesContainer = document.getElementById('instances-container');
+        for(let i=0; i<ENGINE_COUNT; i++) {
+            instancesContainer.innerHTML += `
+            <div class="instance-card active-card" id="card-${i}">
+                <div class="instance-header"><span>Phaser Bank ${i + 1}</span>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <input type="checkbox" id="eng-active-${i}" checked> Enable
+                        <div id="led-${i}" class="led-indicator"></div>
+                    </div>
+                </div>
+                <div class="instance-row">
+                    <label>Tracks:</label><input type="number" id="eng-tracks-${i}" class="ui-num" min="1" max="1000" value="50" style="width: 50px;">
+                    <label>Spread Hz:</label><input type="number" id="eng-spread-${i}" class="ui-num" min="0.1" max="100" value="5" style="width: 50px;">
+                </div>
+                <div class="instance-row" style="color: var(--info); font-weight:bold; margin-top:5px;">Notch Base / Sweep Limit</div>
+                <div class="instance-row">
+                    <div>
+                        <input type="number" id="eng-start-${i}" class="ui-num" min="20" step="1" value="200" style="width: 60px;">
+                        <input type="number" id="eng-end-${i}" class="ui-num" min="20" step="1" value="2000" style="width: 60px;">
+                    </div>
+                </div>
+                <div class="instance-row"><label>LFO Rate (s):</label><input type="number" id="eng-time-${i}" class="ui-num" min="0.1" max="60" step="0.1" value="${LFO_TIMES[i % 10]}" style="width: 55px;"></div>
+                <div class="instance-row" style="margin-top: 5px;">
+                    <button id="eng-lfo-btn-${i}" style="background:var(--info); width:60px; padding: 4px;">Start</button>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                        <div id="eng-readout-${i}" class="readout">200 Hz</div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- BATCH SETTINGS & MASTER CONTROLS ---
+        let engineLfoStates = Array(ENGINE_COUNT).fill(false);
+        const masterLfoBtn = document.getElementById('master-lfo-btn');
+        let masterLfoRunning = false;
+
+        document.getElementById('apply-master-engines-btn').addEventListener('click', () => {
+            const engCount = parseInt(document.getElementById('master-engines-count').value);
+            const trkCount = parseInt(document.getElementById('master-tracks-count').value);
+            const spreadHz = parseFloat(document.getElementById('master-spread-select').value);
+
+            for (let i = 0; i < ENGINE_COUNT; i++) {
+                const card = document.getElementById(`card-${i}`);
+                if (i < engCount) { card.style.display = 'flex'; document.getElementById(`eng-active-${i}`).checked = true; } 
+                else { card.style.display = 'none'; document.getElementById(`eng-active-${i}`).checked = false; }
+                
+                document.getElementById(`eng-tracks-${i}`).value = trkCount;
+                document.getElementById(`eng-spread-${i}`).value = spreadHz;
+                sendEngineConfig(i); 
+            }
+        });
+
+        document.getElementById('apply-sweep-btn').addEventListener('click', () => {
+            const mode = document.getElementById('sweep-mode').value;
+            let baseHz = 200; 
+
+            for(let i=0; i<ENGINE_COUNT; i++) {
+                let endHz;
+                if (mode === 'down') { baseHz = 200 + (i*100); endHz = 50; }
+                else if (mode === 'up') { baseHz = 50 + (i*50); endHz = 4000 + (i*200); }
+                else { baseHz = 100 + (i*50); endHz = i % 2 == 0 ? 50 : 5000; }
+                
+                document.getElementById(`eng-start-${i}`).value = baseHz;
+                document.getElementById(`eng-end-${i}`).value = endHz;
+                document.getElementById(`eng-time-${i}`).value = LFO_TIMES[i % 10]; 
+                
+                sendEngineConfig(i);
+            }
+        });
+
+        masterLfoBtn.addEventListener('click', () => {
+            if(!liveMathNode) return alert("Start Microphone First!");
+            masterLfoRunning = !masterLfoRunning;
+            masterLfoBtn.innerText = masterLfoRunning ? '⏹ Stop All LFOs' : '▶ Start All LFOs';
+            masterLfoBtn.style.backgroundColor = masterLfoRunning ? 'var(--danger)' : 'var(--info)';
+
+            for (let i = 0; i < ENGINE_COUNT; i++) {
+                engineLfoStates[i] = masterLfoRunning;
+                const btn = document.getElementById(`eng-lfo-btn-${i}`);
+                if(btn) { btn.innerText = masterLfoRunning ? 'Stop' : 'Start'; btn.style.background = masterLfoRunning ? 'var(--danger)' : 'var(--info)'; }
+                liveMathNode.port.postMessage({ type: 'updateEngine', index: i, engineData: { lfoActive: masterLfoRunning, lfoSamples: 0 } });
+            }
+        });
+
+        function sendEngineConfig(idx) {
+            if(!liveMathNode) return;
+            const config = {
+                active: document.getElementById(`eng-active-${idx}`).checked,
+                tracks: parseInt(document.getElementById(`eng-tracks-${idx}`).value) || 50,
+                trackSpread: parseFloat(document.getElementById(`eng-spread-${idx}`).value) || 5.0,
+                lfoStart: parseFloat(document.getElementById(`eng-start-${idx}`).value) || 200,
+                lfoEnd: parseFloat(document.getElementById(`eng-end-${idx}`).value) || 1000,
+                lfoTime: parseFloat(document.getElementById(`eng-time-${idx}`).value) || 5
+            };
+            
+            if(!engineLfoStates[idx]) config.currentFreq = config.lfoStart; 
+            liveMathNode.port.postMessage({ type: 'updateEngine', index: idx, engineData: config });
+
+            const card = document.getElementById(`card-${idx}`);
+            const led = document.getElementById(`led-${idx}`);
+            if(config.active) { card.classList.add('active-card'); if(isRunning) led.classList.add('on'); } 
+            else { card.classList.remove('active-card'); led.classList.remove('on'); }
+            
+            document.getElementById(`eng-readout-${idx}`).innerText = Math.floor(config.currentFreq || config.lfoStart) + ' Hz';
+        }
+
+        for(let i=0; i<ENGINE_COUNT; i++) {['eng-active-', 'eng-tracks-', 'eng-spread-', 'eng-start-', 'eng-end-', 'eng-time-'].forEach(prefix => {
+                document.getElementById(prefix + i).addEventListener('input', () => sendEngineConfig(i));
+            });
+            document.getElementById(`eng-lfo-btn-${i}`).addEventListener('click', (e) => {
+                if(!liveMathNode) return;
+                engineLfoStates[i] = !engineLfoStates[i];
+                e.target.innerText = engineLfoStates[i] ? 'Stop' : 'Start';
+                e.target.style.background = engineLfoStates[i] ? 'var(--danger)' : 'var(--info)';
+                liveMathNode.port.postMessage({ type: 'updateEngine', index: i, engineData: { lfoActive: engineLfoStates[i] } });
+            });
+        }
+
+        // --- AUDIO ENGINE BOOT SEQUENCE ---
+        async function toggleMic() {
+            if (isRunning) {
+                if (isRecording) stopRecording();
+                cancelAnimationFrame(animationId);
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                if (audioContext) audioContext.close();
+                
+                micBtn.innerText = 'Start Microphone'; micBtn.classList.remove('active');
+                invertBtn.disabled = true; isRunning = false;
+                for(let i=0; i<ENGINE_COUNT; i++) document.getElementById(`led-${i}`).classList.remove('on'); 
+                return;
+            }
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                await audioContext.audioWorklet.addModule(workletUrl);
+                
+                microphone = audioContext.createMediaStreamSource(stream);
+                
+                let preGainNode = audioContext.createGain();
+                document.getElementById('mic-vol-pct').addEventListener('input', (e) => preGainNode.gain.value = e.target.value / 100);
+
+                rawAnalyser = audioContext.createAnalyser(); rawAnalyser.fftSize = 1024;
+                postAnalyser = audioContext.createAnalyser(); postAnalyser.fftSize = 1024;
+                fftAnalyser = audioContext.createAnalyser(); fftAnalyser.fftSize = 2048;
+                
+                rawTimeData = new Float32Array(rawAnalyser.frequencyBinCount); 
+                postTimeData = new Float32Array(postAnalyser.frequencyBinCount);
+                fftData = new Uint8Array(fftAnalyser.frequencyBinCount);
+
+                liveMathNode = new AudioWorkletNode(audioContext, 'phaser-worklet');
+                liveMathNode.port.onmessage = (e) => {
+                    if (e.data.type === 'status') {
+                        currentEngineFreqs = e.data.freqs; 
+                        for(let i=0; i<ENGINE_COUNT; i++) if(document.getElementById(`eng-active-${i}`).checked) document.getElementById(`eng-readout-${i}`).innerText = Math.floor(e.data.freqs[i]) + ' Hz';
+                    }
+                };
+
+                outputGain = audioContext.createGain(); outputGain.gain.value = 1.0;
+
+                // Routing
+                microphone.connect(rawAnalyser);
+                microphone.connect(preGainNode);
+                preGainNode.connect(liveMathNode);
+                liveMathNode.connect(postAnalyser);
+                liveMathNode.connect(fftAnalyser);
+                liveMathNode.connect(outputGain);
+                outputGain.connect(audioContext.destination);
+
+                // Initialize Engine Data
+                for(let i=0; i<ENGINE_COUNT; i++) sendEngineConfig(i); 
+                document.getElementById('apply-master-engines-btn').click();
+
+                micBtn.innerText = 'Stop Microphone'; micBtn.classList.add('active'); 
+                invertBtn.disabled = false; isRunning = true;
+                
+                for(let i=0; i<ENGINE_COUNT; i++) if(document.getElementById(`eng-active-${i}`).checked) document.getElementById(`led-${i}`).classList.add('on'); 
+
+                masterCanvas.width = masterCanvas.clientWidth; masterCanvas.height = masterCanvas.clientHeight;
+                fftCanvas.width = fftCanvas.clientWidth; fftCanvas.height = fftCanvas.clientHeight;
+                
+                processVisualizer();
+            } catch (err) { alert('Error accessing microphone: ' + err); }
+        }
+
+        // --- RECORDING SYSTEM ---
+        document.getElementById('record-btn').addEventListener('click', () => {
+            if (!isRunning) return alert("Start Microphone first!");
+            if (isRecording) stopRecording(); else startRecording();
+        });
+
+        function startRecording() {
+            isRecording = true; recordStartTime = audioContext.currentTime; 
+            document.getElementById('record-btn').innerText = '⏹ Stop Recording'; document.getElementById('record-btn').classList.add('record-active');
+            document.getElementById('record-status').innerText = `Recording Audio...`;
+            const dest = audioContext.createMediaStreamDestination(); outputGain.connect(dest);
+
+            if (document.getElementById('record-format').value === 'wav') {
+                wavAudioBuffer =[]; scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+                dest.connect(scriptProcessor); scriptProcessor.connect(audioContext.destination); 
+                scriptProcessor.onaudioprocess = (e) => { if (!isRecording) return; wavAudioBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+            } else {
+                recordedChunks =[]; mediaRecorder = new MediaRecorder(dest.stream);
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                mediaRecorder.onstop = () => { triggerDownload(new Blob(recordedChunks), 'AuraPhaser_Output.webm'); };
+                mediaRecorder.start(100); 
+            }
+        }
+
+        function stopRecording() {
+            isRecording = false; 
+            document.getElementById('record-btn').innerText = '⏺ Start Recording Mix'; document.getElementById('record-btn').classList.remove('record-active'); 
+            document.getElementById('record-status').innerText = 'Compiling...';
+            if (document.getElementById('record-format').value === 'wav' && scriptProcessor) { scriptProcessor.disconnect(); setTimeout(compileWAVFile, 50); }
+            else if (mediaRecorder) { mediaRecorder.stop(); }
+        }
+
+        function compileWAVFile() {
+            const length = wavAudioBuffer.reduce((a, b) => a + b.length, 0); const flat = new Float32Array(length);
+            let off = 0; for (let b of wavAudioBuffer) { flat.set(b, off); off += b.length; }
+            const buf = new ArrayBuffer(44 + flat.length * 2); const view = new DataView(buf);
+            const wStr = (off, s) => { for (let i=0; i<s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+            wStr(0, 'RIFF'); view.setUint32(4, 36 + flat.length * 2, true); wStr(8, 'WAVE'); wStr(12, 'fmt ');
+            view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, audioContext.sampleRate, true);
+            view.setUint32(28, audioContext.sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); wStr(36, 'data'); view.setUint32(40, flat.length * 2, true);
+            for (let i = 0, p = 44; i < flat.length; i++, p += 2) { let s = Math.max(-1, Math.min(1, flat[i])); view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }
+            triggerDownload(new Blob([view], { type: 'audio/wav' }), 'AuraPhaser_Output.wav');
+        }
+
+        function triggerDownload(blob, filename) {
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(url); document.getElementById('record-status').innerText = "Saved!"; }, 100);
+        }
+
+        let lastMeter = 0;
+        function processVisualizer(timestamp) {
+            if (!isRunning) return; animationId = requestAnimationFrame(processVisualizer);
+            
+            if (timestamp - lastMeter > 100) {
+                const getDB = (arr) => { let s=0; for(let i=0;i<arr.length;i++) s+=arr[i]*arr[i]; let r=Math.sqrt(s/arr.length); return r<0.0001?-100:20*Math.log10(r); };
+                rawAnalyser.getFloatTimeDomainData(rawTimeData); postAnalyser.getFloatTimeDomainData(postTimeData);
+                document.getElementById('meter-raw').innerText = getDB(rawTimeData).toFixed(1) + ' dB'; document.getElementById('meter-post').innerText = getDB(postTimeData).toFixed(1) + ' dB';
+                lastMeter = timestamp;
+            }
+
+            // Draw Phase Shifter Lines (Time Domain)
+            postAnalyser.getFloatTimeDomainData(postTimeData);
+            masterCtx.fillStyle = '#000000'; masterCtx.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
+            const sliceWidth = masterCanvas.width / postTimeData.length; const heightHalf = masterCanvas.height / 2;
+
+            masterCtx.globalAlpha = 0.4;
+            for(let i = 0; i < ENGINE_COUNT; i++) {
+                if(!document.getElementById(`eng-active-${i}`).checked) continue;
+                masterCtx.beginPath(); masterCtx.strokeStyle = isSystemInverted ? `hsl(340, 100%, ${50 + i*2}%)` : `hsl(180, 100%, ${40 + i*3}%)`;
+                masterCtx.lineWidth = 2; 
+                let fq = Math.max(1, Math.log10(currentEngineFreqs[i] || 20) * 10); 
+                
+                for (let j = 0, x = 0; j < postTimeData.length; j += 6, x += (sliceWidth * 6)) {
+                    const y = (Math.sin((j / postTimeData.length) * Math.PI * 2 * fq + (audioContext.currentTime * fq)) * (heightHalf * 0.7)) + heightHalf;
+                    j === 0 ? masterCtx.moveTo(x, y) : masterCtx.lineTo(x, y); 
+                } masterCtx.stroke();
+            }
+
+            masterCtx.globalAlpha = 1.0; masterCtx.lineWidth = 2; masterCtx.strokeStyle = '#fff';
+            masterCtx.beginPath();
+            for (let i = 0, x = 0; i < postTimeData.length; i++, x+=sliceWidth) {
+                const y = (postTimeData[i] * heightHalf) + heightHalf;
+                i === 0 ? masterCtx.moveTo(x, y) : masterCtx.lineTo(x, y); 
+            }
+            masterCtx.stroke(); 
+
+            // Draw FFT Spectrum
+            fftAnalyser.getByteFrequencyData(fftData);
+            fftCtx.fillStyle = '#000000'; fftCtx.fillRect(0, 0, fftCanvas.width, fftCanvas.height);
+            const fWidth = fftCanvas.width / fftAnalyser.frequencyBinCount;
+            
+            fftCtx.beginPath(); fftCtx.moveTo(0, fftCanvas.height);
+            for(let i = 0; i < fftAnalyser.frequencyBinCount; i++) fftCtx.lineTo(i * fWidth, fftCanvas.height - ((fftData[i] / 255.0) * fftCanvas.height));
+            fftCtx.lineTo(fftCanvas.width, fftCanvas.height); 
+            fftCtx.fillStyle = isSystemInverted ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 229, 255, 0.4)'; fftCtx.fill();
+            fftCtx.strokeStyle = isSystemInverted ? '#ff0055' : '#00e5ff'; fftCtx.lineWidth = 1; fftCtx.stroke();
+        }
+
+        document.getElementById('mic-btn').addEventListener('click', toggleMic);
+        
+        // Boot Sequence defaults
+        document.getElementById('apply-master-engines-btn').click();
+        document.getElementById('apply-sweep-btn').click();
+    </script>
+</body>
+</html>
